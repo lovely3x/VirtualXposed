@@ -1,6 +1,8 @@
 package io.virtualapp.settings;
 
 import android.app.AlertDialog;
+import android.app.Dialog;
+import android.app.ProgressDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
@@ -36,7 +38,7 @@ import java.util.List;
 import io.virtualapp.R;
 import io.virtualapp.abs.ui.VActivity;
 import io.virtualapp.abs.ui.VUiKit;
-import io.virtualapp.home.LoadingDialog;
+import io.virtualapp.glide.GlideUtils;
 
 /**
  * @author weishu
@@ -52,7 +54,7 @@ public class AppManageActivity extends VActivity {
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_app_list);
+        setContentView(R.layout.activity_list);
         mListView = (ListView) findViewById(R.id.list);
         mAdapter = new AppManageAdapter();
         mListView.setAdapter(mAdapter);
@@ -80,7 +82,7 @@ public class AppManageActivity extends VActivity {
                 info.userId = installedUser;
                 ApplicationInfo applicationInfo = installedApp.getApplicationInfo(installedUser);
                 info.name = applicationInfo.loadLabel(packageManager);
-                info.icon = applicationInfo.loadIcon(packageManager);
+//                info.icon = applicationInfo.loadIcon(packageManager);  //Use Glide to load icon async
                 info.pkgName = installedApp.packageName;
                 info.path = applicationInfo.sourceDir;
                 ret.add(info);
@@ -122,10 +124,10 @@ public class AppManageActivity extends VActivity {
 
             holder.label.setText(item.getName());
 
-            if (item.icon == null) {
-                holder.icon.setVisibility(View.GONE);
+            if (VirtualCore.get().isOutsideInstalled(item.pkgName)) {
+                GlideUtils.loadInstalledPackageIcon(getContext(), item.pkgName, holder.icon, android.R.drawable.sym_def_app_icon);
             } else {
-                holder.icon.setImageDrawable(item.icon);
+                GlideUtils.loadPackageIconFromApkFile(getContext(), item.path, holder.icon, android.R.drawable.sym_def_app_icon);
             }
 
             holder.button.setOnClickListener(v -> showContextMenu(item, v));
@@ -172,11 +174,11 @@ public class AppManageActivity extends VActivity {
     }
 
     private void showRepairDialog(AppManageInfo item) {
-        LoadingDialog dialog = new LoadingDialog(this);
+        ProgressDialog dialog = new ProgressDialog(this);
         dialog.setTitle(getResources().getString(R.string.app_manage_repairing));
         try {
+            dialog.setCancelable(false);
             dialog.show();
-            dialog.startLoading();
         } catch (Throwable e) {
             return;
         }
@@ -204,10 +206,10 @@ public class AppManageActivity extends VActivity {
                 }
             }
         }).done((v) -> {
-            dialog.dismiss();
+            dismiss(dialog);
             showAppDetailDialog();
         }).fail((v) -> {
-            dialog.dismiss();
+            dismiss(dialog);
             Toast.makeText(this, R.string.app_manage_repair_failed_tips, Toast.LENGTH_SHORT).show();
         });
     }
@@ -305,6 +307,16 @@ public class AppManageActivity extends VActivity {
             } else {
                 return name + "[" + (userId + 1) + "]";
             }
+        }
+    }
+
+    private static void dismiss(Dialog dialog) {
+        if (dialog == null) {
+            return;
+        }
+        try {
+            dialog.dismiss();
+        } catch (Throwable ignored) {
         }
     }
 }

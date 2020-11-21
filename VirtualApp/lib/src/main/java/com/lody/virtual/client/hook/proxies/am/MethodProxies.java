@@ -27,6 +27,7 @@ import android.os.Bundle;
 import android.os.IBinder;
 import android.os.IInterface;
 import android.os.RemoteException;
+import android.provider.MediaStore;
 import android.text.TextUtils;
 import android.util.TypedValue;
 
@@ -37,6 +38,7 @@ import com.lody.virtual.client.core.VirtualCore;
 import com.lody.virtual.client.env.Constants;
 import com.lody.virtual.client.env.SpecialComponentList;
 import com.lody.virtual.client.hook.base.MethodProxy;
+import com.lody.virtual.client.hook.base.ReplaceLastPkgMethodProxy;
 import com.lody.virtual.client.hook.delegate.TaskDescriptionDelegate;
 import com.lody.virtual.client.hook.providers.ProviderHook;
 import com.lody.virtual.client.hook.secondary.ServiceConnectionDelegate;
@@ -56,6 +58,7 @@ import com.lody.virtual.helper.utils.ArrayUtils;
 import com.lody.virtual.helper.utils.BitmapUtils;
 import com.lody.virtual.helper.utils.ComponentUtils;
 import com.lody.virtual.helper.utils.DrawableUtils;
+import com.lody.virtual.helper.utils.EncodeUtils;
 import com.lody.virtual.helper.utils.FileUtils;
 import com.lody.virtual.helper.utils.Reflect;
 import com.lody.virtual.helper.utils.VLog;
@@ -65,10 +68,6 @@ import com.lody.virtual.remote.AppTaskInfo;
 import com.lody.virtual.server.interfaces.IAppRequestListener;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Method;
 import java.util.List;
@@ -362,6 +361,25 @@ class MethodProxies {
     }
 
 
+    static class OverridePendingTransition extends MethodProxy {
+
+        @Override
+        public String getMethodName() {
+            return "overridePendingTransition";
+        }
+
+        @Override
+        public Object call(Object who, Method method, Object... args) throws Throwable {
+            String packageName = (String) args[1];
+            if (Constants.WECHAT_PACKAGE.equals(packageName)) {
+                // 解决微信界面跳转狂闪的问题
+                return null;
+            } else {
+                return super.call(who, method, args);
+            }
+        }
+    }
+
     static class StartActivity extends MethodProxy {
 
         private static final String SCHEME_FILE = "file";
@@ -403,6 +421,10 @@ class MethodProxies {
                 if (handleUninstallRequest(intent)) {
                     return 0;
                 }
+            } else if (MediaStore.ACTION_IMAGE_CAPTURE.equals(intent.getAction()) ||
+                    MediaStore.ACTION_VIDEO_CAPTURE.equals(intent.getAction()) ||
+                    MediaStore.ACTION_IMAGE_CAPTURE_SECURE.equals(intent.getAction())) {
+                handleMediaCaptureRequest(intent);
             }
 
             String resultWho = null;
@@ -433,7 +455,7 @@ class MethodProxies {
 
             ActivityInfo activityInfo = VirtualCore.get().resolveActivityInfo(intent, userId);
             if (activityInfo == null) {
-                VLog.e("VActivityManager", "Unable to resolve activityInfo : " + intent);
+                VLog.e("VActivityManager", "Unable to resolve activityInfo : %s", intent);
                 if (intent.getPackage() != null && isAppPkg(intent.getPackage())) {
                     return ActivityManagerCompat.START_INTENT_NOT_RESOLVED;
                 }
@@ -474,42 +496,13 @@ class MethodProxies {
             IAppRequestListener listener = VirtualCore.get().getAppRequestListener();
             if (listener != null) {
                 Uri packageUri = intent.getData();
-                if (SCHEME_FILE.equals(packageUri.getScheme())) {
-                    File sourceFile = new File(packageUri.getPath());
-                    try {
-                        listener.onRequestInstall(sourceFile.getPath());
-                        return true;
-                    } catch (RemoteException e) {
-                        e.printStackTrace();
-                    }
-                } else if (SCHEME_CONTENT.equals(packageUri.getScheme())){
-                    InputStream inputStream = null;
-                    OutputStream outputStream = null;
-                    File sharedFileCopy = new File(getHostContext().getCacheDir(), packageUri.getLastPathSegment());
-                    try {
-                        inputStream = getHostContext().getContentResolver().openInputStream(packageUri);
-                        outputStream = new FileOutputStream(sharedFileCopy);
-                        byte[] buffer = new byte[1024];
-                        int count;
-                        while ((count = inputStream.read(buffer)) > 0) {
-                            outputStream.write(buffer, 0, count);
-                        }
-                        outputStream.flush();
-
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    } finally {
-                        FileUtils.closeQuietly(inputStream);
-                        FileUtils.closeQuietly(outputStream);
-                    }
-                    try {
-                        listener.onRequestInstall(sharedFileCopy.getPath());
-                        return true;
-                    } catch (RemoteException e) {
-                        e.printStackTrace();
-                    }
+                String sourcePath = FileUtils.getFileFromUri(getHostContext(), packageUri);
+                try {
+                    listener.onRequestInstall(sourcePath);
+                    return true;
+                } catch (RemoteException e) {
+                    e.printStackTrace();
                 }
-
             }
             return false;
         }
@@ -530,6 +523,21 @@ class MethodProxies {
 
             }
             return false;
+        }
+
+        private void handleMediaCaptureRequest(Intent intent) {
+            Uri uri = intent.getParcelableExtra(MediaStore.EXTRA_OUTPUT);
+            if (uri == null || !SCHEME_FILE.equals(uri.getScheme())) {
+                return;
+            }
+            String path = uri.getPath();
+            String newPath = NativeEngine.getRedirectedPath(path);
+            if (newPath == null) {
+                return;
+            }
+            File realFile = new File(newPath);
+            Uri newUri = Uri.fromFile(realFile);
+            intent.putExtra(MediaStore.EXTRA_OUTPUT, newUri);
         }
 
     }
@@ -899,6 +907,9 @@ class MethodProxies {
             service.setDataAndType(service.getData(), resolvedType);
             ServiceInfo serviceInfo = VirtualCore.get().resolveServiceInfo(service, VUserHandle.myUserId());
             if (serviceInfo != null) {
+                if (isFiltered(service)) {
+                    return service.getComponent();
+                }
                 return VActivityManager.get().startService(appThread, service, resolvedType, userId);
             }
             return method.invoke(who, args);
@@ -907,6 +918,16 @@ class MethodProxies {
         @Override
         public boolean isEnable() {
             return isAppProcess() || isServerProcess();
+        }
+
+        private boolean isFiltered(Intent service) {
+            // disable tinker.
+            if (service != null && service.getComponent() != null
+                    && EncodeUtils.decode("Y29tLnRlbmNlbnQudGlua2VyLmxpYi5zZXJ2aWMuVGlua2VyUGF0Y2hTZXJ2aWNl") // com.tencent.tinker.lib.service.TinkerPatchService
+                    .equals(service.getComponent().getClassName())) {
+                return true;
+            }
+            return false;
         }
     }
 
@@ -1702,6 +1723,12 @@ class MethodProxies {
         @Override
         public boolean isEnable() {
             return isAppProcess();
+        }
+    }
+
+    static class GetPackageProcessState extends ReplaceLastPkgMethodProxy {
+        public GetPackageProcessState() {
+            super("getPackageProcessState");
         }
     }
 }

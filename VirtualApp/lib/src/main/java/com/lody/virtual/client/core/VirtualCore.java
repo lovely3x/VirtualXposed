@@ -56,6 +56,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
+import me.weishu.reflection.Reflection;
 import mirror.android.app.ActivityThread;
 
 /**
@@ -65,6 +66,8 @@ import mirror.android.app.ActivityThread;
 public final class VirtualCore {
 
     public static final int GET_HIDDEN_APP = 0x00000001;
+
+    public static final String TAICHI_PACKAGE = "me.weishu.exp";
 
     @SuppressLint("StaticFieldLeak")
     private static VirtualCore gCore = new VirtualCore();
@@ -99,6 +102,7 @@ public final class VirtualCore {
     private PhoneInfoDelegate phoneInfoDelegate;
     private ComponentDelegate componentDelegate;
     private TaskDescriptionDelegate taskDescriptionDelegate;
+    private Boolean taichiInstalled = null;
 
     private VirtualCore() {
     }
@@ -181,6 +185,8 @@ public final class VirtualCore {
             if (Looper.myLooper() != Looper.getMainLooper()) {
                 throw new IllegalStateException("VirtualCore.startup() must called in main thread.");
             }
+            Reflection.unseal(context);
+
             VASettings.STUB_CP_AUTHORITY = context.getPackageName() + "." + VASettings.STUB_DEF_AUTHORITY;
             ServiceManagerNative.SERVICE_CP_AUTH = context.getPackageName() + "." + ServiceManagerNative.SERVICE_DEF_AUTH;
             this.context = context;
@@ -385,11 +391,40 @@ public final class VirtualCore {
     }
 
     public boolean isOutsidePackageVisible(String pkg) {
+        if (!isXposedEnabled() || isTaiChiInstalled()) {
+            PackageManager unHookPackageManager = getUnHookPackageManager();
+            try {
+                unHookPackageManager.getPackageInfo(pkg, 0);
+                return true;
+            } catch (PackageManager.NameNotFoundException e) {
+                return false;
+            }
+        }
+
         try {
             return getService().isOutsidePackageVisible(pkg);
         } catch (RemoteException e) {
             return VirtualRuntime.crash(e);
         }
+    }
+
+    private boolean isTaiChiInstalled() {
+        if (taichiInstalled != null) {
+            return taichiInstalled;
+        }
+
+        try {
+            getUnHookPackageManager().getPackageInfo(TAICHI_PACKAGE, 0);
+            taichiInstalled = true;
+        } catch (PackageManager.NameNotFoundException e) {
+            taichiInstalled = false;
+        }
+
+        return taichiInstalled;
+    }
+
+    public boolean isXposedEnabled() {
+        return !VirtualCore.get().getContext().getFileStreamPath(".disable_xposed").exists();
     }
 
     public boolean isAppInstalled(String pkg) {

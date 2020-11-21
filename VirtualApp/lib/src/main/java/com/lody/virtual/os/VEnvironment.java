@@ -5,10 +5,12 @@ import android.os.Build;
 import android.os.Environment;
 
 import com.lody.virtual.client.core.VirtualCore;
+import com.lody.virtual.helper.utils.EncodeUtils;
 import com.lody.virtual.helper.utils.FileUtils;
 import com.lody.virtual.helper.utils.VLog;
 
 import java.io.File;
+import java.util.Locale;
 
 import mirror.dalvik.system.VMRuntime;
 
@@ -67,7 +69,8 @@ public class VEnvironment {
     }
 
     public static File getPackageResourcePath(String packgeName) {
-        return new File(getDataAppPackageDirectory(packgeName), "base.apk");
+        return new File(getDataAppPackageDirectory(packgeName),
+                EncodeUtils.decode("YmFzZS5hcGs=")); // base.apk
     }
 
     public static File getDataAppDirectory() {
@@ -123,9 +126,12 @@ public class VEnvironment {
             // in Android O, the oatfile is relate with classloader, we must ensure the correct location to avoid repeated load dex.
             String instructionSet = VMRuntime.getCurrentInstructionSet.call();
             File oatDir = ensureCreated(new File(getDataAppPackageDirectory(packageName), "oat" + File.separator + instructionSet));
-            return new File(oatDir, "base.odex");
+            return new File(oatDir, EncodeUtils.decode("YmFzZS5vZGV4")); // base.odex
         } else {
-            return new File(DALVIK_CACHE_DIRECTORY, "data@app@" + packageName + "-1@base.apk@classes.dex");
+            // return new File(DALVIK_CACHE_DIRECTORY, "data@app@" + packageName + "-1@base.apk@classes.dex");
+            return new File(DALVIK_CACHE_DIRECTORY, EncodeUtils.decode("ZGF0YUBhcHBA") +
+                    packageName +
+                    EncodeUtils.decode("LTFAYmFzZS5hcGtAY2xhc3Nlcy5kZXg="));
         }
     }
 
@@ -173,8 +179,22 @@ public class VEnvironment {
         return ensureCreated(userBase);
     }
 
+    // /sdcard/Android/data/<host_package>/virtual/<user>
+    public static File getVirtualPrivateStorageDir(int userId) {
+        String base = String.format(Locale.ENGLISH, "%s/Android/data/%s/%s/%d", Environment.getExternalStorageDirectory(),
+                VirtualCore.get().getHostPkg(), "virtual", userId);
+        File file = new File(base);
+        return ensureCreated(file);
+    }
+
+    public static File getVirtualPrivateStorageDir(int userId, String packageName) {
+        File file = new File(getVirtualPrivateStorageDir(userId), packageName);
+        return ensureCreated(file);
+    }
+
     public static File getWifiMacFile(int userId) {
-        return new File(getUserSystemDirectory(userId), "wifiMacAddress");
+        // return new File(getUserSystemDirectory(userId), "wifiMacAddress");
+        return new File(getUserSystemDirectory(userId), EncodeUtils.decode("d2lmaU1hY0FkZHJlc3M="));
     }
 
     public static File getDataDirectory() {

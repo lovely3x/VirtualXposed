@@ -1,9 +1,10 @@
 package io.virtualapp.home;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.drawable.ColorDrawable;
@@ -26,12 +27,12 @@ import java.util.List;
 import java.util.Locale;
 
 import io.virtualapp.R;
-import io.virtualapp.VApp;
-import io.virtualapp.VCommends;
+import io.virtualapp.XApp;
 import io.virtualapp.abs.ui.VFragment;
 import io.virtualapp.home.adapters.CloneAppListAdapter;
 import io.virtualapp.home.models.AppInfo;
 import io.virtualapp.home.models.AppInfoLite;
+import io.virtualapp.sys.Installd;
 import io.virtualapp.widgets.DragSelectRecyclerView;
 
 
@@ -80,6 +81,77 @@ public class ListAppFragment extends VFragment<ListAppContract.ListAppPresenter>
         mAdapter.saveInstanceState(outState);
     }
 
+    private void whatIsTaiChi() {
+        AlertDialog alertDialog = new AlertDialog.Builder(getContext())
+                .setTitle(R.string.what_is_exp)
+                .setMessage(R.string.exp_tips)
+                .setPositiveButton(R.string.exp_introduce_title, (dialog, which) -> {
+                    Intent t = new Intent(Intent.ACTION_VIEW);
+                    t.setData(Uri.parse("https://www.coolapk.com/apk/me.weishu.exp"));
+                    startActivity(t);
+                }).setNegativeButton(R.string.about_donate_title, (dialog, which) -> {
+                    Intent t = new Intent(Intent.ACTION_VIEW);
+                    t.setData(Uri.parse("https://vxposed.com/donate.html"));
+                    startActivity(t);
+                })
+                .create();
+        try {
+            alertDialog.show();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void chooseInstallWay(Runnable runnable, String path) {
+        AlertDialog alertDialog = new AlertDialog.Builder(getContext())
+                .setTitle(R.string.install_choose_way)
+                .setMessage(R.string.install_choose_content)
+                .setPositiveButton(R.string.install_choose_taichi, (dialog, which) -> {
+                    PackageManager packageManager = getActivity().getPackageManager();
+                    try {
+                        packageManager.getPackageInfo("me.weishu.exp", 0);
+                        Intent intent = new Intent();
+                        intent.setComponent(new ComponentName("me.weishu.exp", "me.weishu.exp.ui.MainActivity"));
+                        intent.putExtra("path", path);
+                        startActivity(intent);
+                    } catch (PackageManager.NameNotFoundException e) {
+                        AlertDialog showInstallDialog = new AlertDialog.Builder(getContext())
+                                .setTitle(android.R.string.dialog_alert_title)
+                                .setMessage(R.string.install_taichi_not_exist)
+                                .setPositiveButton(R.string.install_go_to_install_exp, (dialog1, which1) -> {
+                                    Intent t = new Intent(Intent.ACTION_VIEW);
+                                    t.setData(Uri.parse("https://www.coolapk.com/apk/me.weishu.exp"));
+                                    startActivity(t);
+                                })
+                                .create();
+                        showInstallDialog.show();
+                    } catch (Throwable e) {
+                        AlertDialog showInstallDialog = new AlertDialog.Builder(getContext())
+                                .setTitle(android.R.string.dialog_alert_title)
+                                .setMessage(R.string.install_taichi_while_old_version)
+                                .setPositiveButton(R.string.install_go_latest_exp, (dialog1, which1) -> {
+                                    Intent t = new Intent(Intent.ACTION_VIEW);
+                                    t.setData(Uri.parse("https://www.coolapk.com/apk/me.weishu.exp"));
+                                    startActivity(t);
+                                })
+                                .create();
+                        showInstallDialog.show();
+                    }
+                    finishActivity();
+                }).setNegativeButton("VirtualXposed", (dialog, which) -> {
+                    if (runnable != null) {
+                        runnable.run();
+                    }
+                    finishActivity();
+                }).setNeutralButton(R.string.what_is_exp, ((dialog, which) -> {
+                    whatIsTaiChi();
+                }))
+                .create();
+        try {
+            alertDialog.show();
+        } catch (Throwable ignored) {
+        }
+    }
+
     @Override
     public void onViewCreated(View view, Bundle savedInstanceState) {
         mRecyclerView = (DragSelectRecyclerView) view.findViewById(R.id.select_app_recycler_view);
@@ -90,7 +162,7 @@ public class ListAppFragment extends VFragment<ListAppContract.ListAppPresenter>
         DividerItemDecoration dividerItemDecoration = new DividerItemDecoration(getContext(), DividerItemDecoration.VERTICAL);
         dividerItemDecoration.setDrawable(new ColorDrawable(0x1f000000));
         mRecyclerView.addItemDecoration(dividerItemDecoration);
-        mAdapter = new CloneAppListAdapter(getActivity());
+        mAdapter = new CloneAppListAdapter(getActivity(), getSelectFrom());
         mRecyclerView.setAdapter(mAdapter);
         mAdapter.setOnItemClickListener(new CloneAppListAdapter.ItemEventListener() {
             @Override
@@ -112,25 +184,30 @@ public class ListAppFragment extends VFragment<ListAppContract.ListAppPresenter>
         });
         mAdapter.setSelectionListener(count -> {
             mInstallButton.setEnabled(count > 0);
-            mInstallButton.setText(String.format(Locale.ENGLISH, VApp.getApp().getResources().getString(R.string.install_d), count));
+            mInstallButton.setText(String.format(Locale.ENGLISH, XApp.getApp().getResources().getString(R.string.install_d), count));
         });
         mInstallButton.setOnClickListener(v -> {
             Integer[] selectedIndices = mAdapter.getSelectedIndices();
             ArrayList<AppInfoLite> dataList = new ArrayList<AppInfoLite>(selectedIndices.length);
             for (int index : selectedIndices) {
                 AppInfo info = mAdapter.getItem(index);
-                dataList.add(new AppInfoLite(info.packageName, info.path, info.fastOpen, info.isEnableHidden));
+                dataList.add(new AppInfoLite(info.packageName, info.path, info.fastOpen, info.disableMultiVersion));
             }
-            Intent data = new Intent();
-            data.putParcelableArrayListExtra(VCommends.EXTRA_APP_INFO_LIST, dataList);
-            getActivity().setResult(Activity.RESULT_OK, data);
-            getActivity().finish();
+
+            if (dataList.size() > 0) {
+                String path = dataList.get(0).path;
+                chooseInstallWay(() -> Installd.startInstallerActivity(getActivity(), dataList), path);
+            }
         });
         mSelectFromExternal.setOnClickListener(v -> {
             Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
-            intent.setType("application/vnd.android"); // apk file
+            intent.setType("application/vnd.android.package-archive"); // apk file
             intent.addCategory(Intent.CATEGORY_OPENABLE);
-            startActivityForResult(intent, REQUEST_GET_FILE);
+            try {
+                startActivityForResult(intent, REQUEST_GET_FILE);
+            } catch (Throwable ignored) {
+                Toast.makeText(getActivity(), "Error", Toast.LENGTH_SHORT).show();
+            }
         });
         new ListAppPresenterImpl(getActivity(), this, getSelectFrom()).start();
     }
@@ -172,27 +249,7 @@ public class ListAppFragment extends VFragment<ListAppContract.ListAppPresenter>
             return;
         }
 
-        PackageInfo pkgInfo = null;
-        try {
-            pkgInfo = getActivity().getPackageManager().getPackageArchiveInfo(path, PackageManager.GET_META_DATA);
-            pkgInfo.applicationInfo.sourceDir = path;
-            pkgInfo.applicationInfo.publicSourceDir = path;
-        } catch (Exception e) {
-            // Ignore
-        }
-        if (pkgInfo == null) {
-            return;
-        }
-
-        boolean isXposed = pkgInfo.applicationInfo.metaData != null
-                && pkgInfo.applicationInfo.metaData.containsKey("xposedmodule");
-        AppInfoLite appInfoLite = new AppInfoLite(pkgInfo.packageName, path, false, isXposed);
-        ArrayList<AppInfoLite> dataList = new ArrayList<>();
-        dataList.add(appInfoLite);
-        Intent intent = new Intent();
-        intent.putParcelableArrayListExtra(VCommends.EXTRA_APP_INFO_LIST, dataList);
-        getActivity().setResult(Activity.RESULT_OK, intent);
-        getActivity().finish();
+        chooseInstallWay(() -> Installd.handleRequestFromFile(getActivity(), path), path);
     }
 
     public static String getPath(Context context, Uri uri) {

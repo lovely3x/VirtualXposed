@@ -1,5 +1,7 @@
 package com.lody.virtual.helper.utils;
 
+import android.content.Context;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Parcel;
 import android.system.Os;
@@ -14,6 +16,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -93,13 +96,18 @@ public class FileUtils {
         if (dir == null) {
             return false;
         }
+        boolean success = true;
         if (dir.isDirectory()) {
             String[] children = dir.list();
             for (String file : children) {
-                boolean success = deleteDir(new File(dir, file));
-                if (!success) {
-                    return false;
+                boolean ret = deleteDir(new File(dir, file));
+                if (!ret) {
+                    success = false;
                 }
+            }
+            if (success) {
+                // if all subdirectory are deleted, delete the dir itself.
+                return dir.delete();
             }
         }
         return dir.delete();
@@ -131,6 +139,43 @@ public class FileUtils {
             bos.write(data, 0, count);
         }
         bos.close();
+    }
+
+    public static String getFileFromUri(Context context, Uri packageUri) {
+
+        if (packageUri == null) {
+            return null;
+        }
+
+        final String SCHEME_FILE = "file";
+        final String SCHEME_CONTENT = "content";
+        String sourcePath = null;
+
+        if (SCHEME_FILE.equals(packageUri.getScheme())) {
+            sourcePath = packageUri.getPath();
+        } else if (SCHEME_CONTENT.equals(packageUri.getScheme())){
+            InputStream inputStream = null;
+            OutputStream outputStream = null;
+            File sharedFileCopy = new File(context.getCacheDir(), packageUri.getLastPathSegment());
+            try {
+                inputStream = context.getContentResolver().openInputStream(packageUri);
+                outputStream = new FileOutputStream(sharedFileCopy);
+                byte[] buffer = new byte[1024];
+                int count;
+                while ((count = inputStream.read(buffer)) > 0) {
+                    outputStream.write(buffer, 0, count);
+                }
+                outputStream.flush();
+
+            } catch (IOException e) {
+                e.printStackTrace();
+            } finally {
+                FileUtils.closeQuietly(inputStream);
+                FileUtils.closeQuietly(outputStream);
+            }
+            sourcePath = sharedFileCopy.getPath();
+        }
+        return sourcePath;
     }
 
     public static void writeToFile(byte[] data, File target) throws IOException {
@@ -178,6 +223,43 @@ public class FileUtils {
         } finally {
             closeQuietly(inputStream);
             closeQuietly(outputStream);
+        }
+    }
+
+    public static void copyFile(String source, String target) throws IOException {
+        File from = new File(source);
+        if (!from.exists()) {
+            return;
+        }
+        if (from.isFile()) {
+            copyFile(from, new File(target));
+        } else {
+            copyDir(source, target);
+        }
+    }
+
+    public static void copyDir(String sourcePath, String targetPath) throws IOException {
+        File from = new File(sourcePath);
+        if (!from.exists()) {
+            return;
+        }
+
+        File to = new File(targetPath);
+        if (!to.exists()) {
+            boolean mkdirs = to.mkdirs();
+            if (!mkdirs) {
+                return;
+            }
+        }
+
+        String[] child = from.list();
+        for (String file : child) {
+            File childSource = new File(sourcePath, file);
+            if (childSource.isDirectory()) {
+                copyDir(sourcePath + File.separator + file, targetPath + File.separator + file);
+            } else {
+                copyFile(childSource, new File(targetPath, file));
+            }
         }
     }
 

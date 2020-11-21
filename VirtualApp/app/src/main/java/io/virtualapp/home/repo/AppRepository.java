@@ -169,6 +169,12 @@ public class AppRepository implements AppDataSource {
             if (hostPkg.equals(pkg.packageName)) {
                 continue;
             }
+
+            // ignore taichi package
+            if (VirtualCore.TAICHI_PACKAGE.equals(pkg.packageName)) {
+                continue;
+            }
+
             // ignore the System package
             if (isSystemApplication(pkg)) {
                 continue;
@@ -182,7 +188,8 @@ public class AppRepository implements AppDataSource {
             info.packageName = pkg.packageName;
             info.fastOpen = fastOpen;
             info.path = path;
-            info.icon = ai.loadIcon(pm);
+//            info.icon = ai.loadIcon(pm);
+            info.icon = null;  // Use Glide to load the icon async
             info.name = ai.loadLabel(pm);
             info.version = pkg.versionName;
             InstalledAppInfo installedAppInfo = VirtualCore.get().getInstalledAppInfo(pkg.packageName, 0);
@@ -190,7 +197,7 @@ public class AppRepository implements AppDataSource {
                 info.cloneCount = installedAppInfo.getInstalledUsers().length;
             }
             if (ai.metaData != null && ai.metaData.containsKey("xposedmodule")) {
-                info.isEnableHidden = true;
+                info.disableMultiVersion = true;
                 info.cloneCount = 0;
             }
             list.add(info);
@@ -215,7 +222,7 @@ public class AppRepository implements AppDataSource {
         if (info.fastOpen) {
             flags |= InstallStrategy.DEPEND_SYSTEM_IF_EXIST;
         }
-        if (info.isEnableHidden) {
+        if (info.disableMultiVersion) {
             flags |= InstallStrategy.UPDATE_IF_EXIST;
         }
         return VirtualCore.get().installPackage(info.path, flags);
